@@ -37,7 +37,7 @@
  */
 #define SLOW_CLK_CAL_CYCLES     CONFIG_RTC_CLK_CAL_CYCLES
 
-#define MHZ (1000000)
+#define MHZ(x) ((x) * 1000000UL)
 
 static void select_rtc_slow_clk(soc_rtc_slow_clk_src_t rtc_slow_clk_src);
 
