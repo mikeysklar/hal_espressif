@@ -6,9 +6,10 @@
 
 /* Shared SAR power/reset control for ADC and PWDET. */
 
+#include <sys/lock.h>
+#include <zephyr/kernel.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
 #include "esp_private/sar_periph_ctrl.h"
 #include "esp_private/regi2c_ctrl.h"
 #include "esp_private/critical_section.h"
@@ -17,7 +18,8 @@
 #include "hal/adc_ll.h"
 
 ESP_LOG_ATTR_TAG(TAG, "sar_periph_ctrl");
-extern portMUX_TYPE rtc_spinlock;
+extern esp_os_spinlock_t rtc_spinlock;
+K_MUTEX_DEFINE(adc_reset_lock);
 
 void sar_periph_ctrl_init(void)
 {
@@ -121,8 +123,10 @@ void sar_periph_ctrl_adc_reset(void)
 
 void adc_reset_lock_acquire(void)
 {
+    k_mutex_lock(&adc_reset_lock, K_FOREVER);
 }
 
 void adc_reset_lock_release(void)
 {
+    k_mutex_unlock(&adc_reset_lock);
 }
