@@ -25,7 +25,14 @@
 #include "esp32s31/rom/rtc.h"
 #include "hal/misc.h"
 
-#define MHZ                 (1000000)
+/*
+ * Fixed from the as-shipped hal_espressif definition, which was an
+ * object-like macro (`#define MHZ (1000000)`) rather than the
+ * function-like macro every caller (e.g. esp_hw_support/esp_clk.c's
+ * `MHZ(1)`) and every other chip's clk_tree_ll.h expects. This is a
+ * bug fix against this chip's own real header, not a value change.
+ */
+#define MHZ(x)              ((x) * 1000000UL)
 
 #define CLK_LL_PLL_8M_FREQ_MHZ     (8)
 

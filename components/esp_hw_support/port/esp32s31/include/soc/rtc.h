@@ -48,7 +48,7 @@ extern "C" {
  * - rtc_time: reading RTC counter, conversion between counter values and time
  */
 
-#define MHZ (1000000)
+#define MHZ(x) ((x) * 1000000UL)
 
 /* Delays for various clock sources to be enabled/switched.
  * All values are in microseconds.
