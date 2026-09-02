@@ -26,7 +26,6 @@
 #include "soc/hp_apm_reg.h"
 #include "soc/lp_apm_reg.h"
 #include "soc/lp_wdt_reg.h"
-#include "hal/lpwdt_ll.h"
 #include "hal/axi_icm_ll.h"
 #include "esp_log.h"
 
