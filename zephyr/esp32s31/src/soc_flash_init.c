@@ -51,10 +51,10 @@ void flash_update_id(void)
 
 void flash_cs_timing_config(void)
 {
-	SET_PERI_REG_MASK(SPI_MEM_USER_REG(0), SPI_MEM_CS_HOLD_M | SPI_MEM_CS_SETUP_M);
-	SET_PERI_REG_BITS(SPI_MEM_CTRL2_REG(0), SPI_MEM_CS_HOLD_TIME_V, 0, SPI_MEM_CS_HOLD_TIME_S);
-	SET_PERI_REG_BITS(SPI_MEM_CTRL2_REG(0), SPI_MEM_CS_SETUP_TIME_V, 0,
-			  SPI_MEM_CS_SETUP_TIME_S);
+	SET_PERI_REG_MASK(SPI_MEM_C_USER_REG, SPI_MEM_C_CS_HOLD_M | SPI_MEM_C_CS_SETUP_M);
+	SET_PERI_REG_BITS(SPI_MEM_C_CTRL2_REG, SPI_MEM_C_CS_HOLD_TIME_V, 0, SPI_MEM_C_CS_HOLD_TIME_S);
+	SET_PERI_REG_BITS(SPI_MEM_C_CTRL2_REG, SPI_MEM_C_CS_SETUP_TIME_V, 0,
+			  SPI_MEM_C_CS_SETUP_TIME_S);
 }
 
 void flash_clock_config(const esp_image_header_t *pfhdr)
@@ -168,17 +168,17 @@ static void print_flash_info(const esp_image_header_t *bootloader_hdr)
 	/* SPI mode could have been set to QIO during boot already,
 	 * so test the SPI registers not the flash header
 	 */
-	uint32_t spi_ctrl = REG_READ(SPI_MEM_CTRL_REG(0));
+	uint32_t spi_ctrl = REG_READ(SPI_MEM_C_CTRL_REG);
 
-	if (spi_ctrl & SPI_MEM_FREAD_QIO) {
+	if (spi_ctrl & SPI_MEM_C_FREAD_QIO) {
 		str = "QIO";
-	} else if (spi_ctrl & SPI_MEM_FREAD_QUAD) {
+	} else if (spi_ctrl & SPI_MEM_C_FREAD_QUAD) {
 		str = "QOUT";
-	} else if (spi_ctrl & SPI_MEM_FREAD_DIO) {
+	} else if (spi_ctrl & SPI_MEM_C_FREAD_DIO) {
 		str = "DIO";
-	} else if (spi_ctrl & SPI_MEM_FREAD_DUAL) {
+	} else if (spi_ctrl & SPI_MEM_C_FREAD_DUAL) {
 		str = "DOUT";
-	} else if (spi_ctrl & SPI_MEM_FASTRD_MODE) {
+	} else if (spi_ctrl & SPI_MEM_C_FASTRD_MODE) {
 		str = "FAST READ";
 	} else {
 		str = "SLOW READ";
