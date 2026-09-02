@@ -22,9 +22,9 @@
 #include "modem/modem_lpcon_reg.h"
 #include "soc/system_reg.h"
 #include "soc/assist_debug_reg.h"
+#include "soc/bus_monitor_reg.h"
 #include "soc/hp_apm_reg.h"
 #include "soc/lp_apm_reg.h"
-#include "soc/pcr_reg.h"
 #include "soc/lp_wdt_reg.h"
 #include "hal/lpwdt_ll.h"
 #include "hal/axi_icm_ll.h"
@@ -105,8 +105,18 @@ void super_wdt_auto_feed(void)
 
 void wdt_reset_cpu0_info_enable(void)
 {
-	REG_SET_BIT(PCR_ASSIST_CONF_REG, PCR_ASSIST_CLK_EN);
-	REG_CLR_BIT(PCR_ASSIST_CONF_REG, PCR_ASSIST_RST_EN);
+	/*
+	 * ESP32-S31 renamed the assist-debug peripheral to bus_monitor and
+	 * moved its clock gate inside its own register block
+	 * (BUS_MONITOR_CLOCK_GATE_REG.BUS_MONITOR_CLK_EN, default already
+	 * enabled), instead of gating it externally via PCR like
+	 * ESP32-C61's PCR_ASSIST_CONF_REG (whose CLK_EN/RST_EN also
+	 * default to already-enabled/already-out-of-reset -- this call is
+	 * defensive on both chips, not strictly required in the common
+	 * case). No separate reset-enable bit is exposed for bus_monitor,
+	 * so there's nothing to clear here.
+	 */
+	REG_SET_BIT(BUS_MONITOR_CLOCK_GATE_REG, BUS_MONITOR_CLK_EN);
 	REG_WRITE(ASSIST_DEBUG_CORE_0_RCD_EN_REG,
 		  ASSIST_DEBUG_CORE_0_RCD_PDEBUGEN | ASSIST_DEBUG_CORE_0_RCD_RECORDEN);
 }
