@@ -20,6 +20,10 @@ typedef struct {
     pmu_dev_t *dev;
 } pmu_hal_context_t;
 
+void pmu_hal_hp_set_control_ready_wait_cycle(pmu_hal_context_t *hal, uint32_t isolate_wait_cycle, uint32_t reset_wait_cycle);
+
+void pmu_hal_lp_set_control_ready_wait_cycle(pmu_hal_context_t *hal, uint32_t isolate_wait_cycle, uint32_t reset_wait_cycle);
+
 void pmu_hal_hp_set_digital_power_up_wait_cycle(pmu_hal_context_t *hal, uint32_t power_supply_wait_cycle, uint32_t power_up_wait_cycle);
 
 uint32_t pmu_hal_hp_get_digital_power_up_wait_cycle(pmu_hal_context_t *hal);
