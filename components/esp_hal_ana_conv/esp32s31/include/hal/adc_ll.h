@@ -183,6 +183,31 @@ static inline void adc_ll_set_sample_cycle(uint32_t sample_cycle)
 }
 
 /**
+ * Set the initial calibration code for the given ADC unit.
+ *
+ * @note ESP32-S31's SAR1 init-code regi2c addresses were renamed
+ * (I2C_SARADC_SAR1_INIT_CODE_MSB/LSB, not ADC_SAR1_INITIAL_CODE_HIGH/
+ * LOW_ADDR); SAR2's kept the same names as other targets.
+ *
+ * @param adc_n ADC unit.
+ * @param param Calibration code.
+ */
+__attribute__((always_inline))
+static inline void adc_ll_set_calibration_param(adc_unit_t adc_n, uint32_t param)
+{
+    uint8_t msb = param >> 8;
+    uint8_t lsb = param & 0xFF;
+
+    if (adc_n == ADC_UNIT_1) {
+        REGI2C_WRITE_MASK(I2C_SARADC, I2C_SARADC_SAR1_INIT_CODE_MSB, msb);
+        REGI2C_WRITE_MASK(I2C_SARADC, I2C_SARADC_SAR1_INIT_CODE_LSB, lsb);
+    } else {
+        REGI2C_WRITE_MASK(I2C_SARADC, ADC_SAR2_INITIAL_CODE_HIGH_ADDR, msb);
+        REGI2C_WRITE_MASK(I2C_SARADC, ADC_SAR2_INITIAL_CODE_LOW_ADDR, lsb);
+    }
+}
+
+/**
  * Set ADC CCT for PWDET controller.
  *
  * @note Capacitor tuning of the PA power monitor. CCT is set to the same value as PHY.
@@ -305,6 +330,23 @@ static inline void adc_ll_digi_set_pattern_table_len(adc_unit_t adc_n, uint32_t 
     } else {
         ADC.ctrl1.sar2_patt_len = patt_len - 1;
     }
+}
+
+/**
+ * Reset the pattern table for both ADC units.
+ *
+ * ESP32-S31 has independent tab1/tab2 register pairs per ADC unit
+ * (sar1_patt_tab1/2, sar2_patt_tab1/2), unlike chips with a single
+ * shared saradc_sar_patt_tab1/2 pair -- clear all four to the same
+ * all-ones sentinel those chips use.
+ */
+__attribute__((always_inline))
+static inline void adc_ll_digi_reset_pattern_table(void)
+{
+    ADC.sar1_patt_tab1.sar1_patt_tab1 = 0xffffff;
+    ADC.sar1_patt_tab2.sar1_patt_tab2 = 0xffffff;
+    ADC.sar2_patt_tab1.sar2_patt_tab1 = 0xffffff;
+    ADC.sar2_patt_tab2.sar2_patt_tab2 = 0xffffff;
 }
 
 /**
