@@ -63,6 +63,8 @@ extern "C" {
 #define RTC_CNTL_SCK_DCAP_DEFAULT    128
 #define RTC_CNTL_RC32K_DFREQ_DEFAULT 700
 
+#define RTC_CNTL_MIN_SLP_VAL_MIN                (2)
+
 /**
  * @brief CPU clock configuration structure
  */
