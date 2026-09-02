@@ -271,7 +271,7 @@ if(CONFIG_SOC_SERIES_ESP32S31)
     ../../components/spi_flash/spi_flash_os_func_app.c
     ../../components/esp_hw_support/mspi/mspi_timing_tuning/mspi_timing_tuning.c
     ../../components/esp_hw_support/mspi/mspi_timing_tuning/port/${CONFIG_SOC_SERIES}/mspi_timing_config.c
-    ../../components/esp_hw_support/mspi/mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_mspi_delay.c
+    ../../components/esp_hw_support/mspi/mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_dqs.c
     ../../components/esp_hw_support/mspi/mspi_intr/mspi_intr.c
     )
   endif()
