@@ -103,6 +103,7 @@ if(CONFIG_SOC_SERIES_ESP32S31)
     ../../components/esp_hal_pcnt/include
     ../../components/esp_hal_pcnt/${CONFIG_SOC_SERIES}/include
     ../../components/esp_hal_touch_sens/include
+    ../../components/esp_hal_touch_sens/${CONFIG_SOC_SERIES}/include
     ../../components/esp_hal_uart/include
     ../../components/esp_hal_uart/${CONFIG_SOC_SERIES}/include
     ../../components/esp_hal_usb/include
