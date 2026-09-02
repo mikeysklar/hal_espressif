@@ -21,12 +21,17 @@
 
 void soc_random_enable(void)
 {
-	tsens_ll_reg_values_t saved_tsens_regs = {};
-	tsens_ll_backup_registers(&saved_tsens_regs);
+	/*
+	 * Unlike chips where temperature sensor control lives inside the
+	 * same ADC register struct (so an ADC reset clobbers it too),
+	 * ESP32-S31 resets ADC and TSENS through independent bits
+	 * (LP_PERI_CLKRST.adc_ctrl.lp_adc_rst_en vs .tsens_ctrl.
+	 * lp_tsens_rst_en -- see adc_ll_reset_register()/
+	 * temperature_sensor_ll_reset_module()). The backup/restore dance
+	 * other ports do around the reset is unnecessary here.
+	 */
 	adc_ll_reset_register();
-	/* Restore temperature sensor related register values after ADC reset */
 	temperature_sensor_ll_reset_module();
-	tsens_ll_restore_registers(&saved_tsens_regs);
 
 	adc_ll_enable_bus_clock(true);
 	adc_ll_enable_func_clock(true);
@@ -39,7 +44,19 @@ void soc_random_enable(void)
 	/* Enable analog I2C master clock for RNG runtime */
 	ANALOG_CLOCK_ENABLE();
 
-	adc_ll_regi2c_init();
+	/*
+	 * adc_ll_regi2c_init()'s calibration-reference-enable step
+	 * (I2C_SARADC1/2_ENCAL_REF on other chips) has no verified
+	 * equivalent in ESP32-S31's real regi2c_saradc.h -- its DTEST/ENT
+	 * regi2c addresses (ADC_SARADC_DTEST_RTC_ADDR, _ENT_TSENS_ADDR)
+	 * don't obviously correspond to the same analog nodes, and
+	 * getting this wrong risks silently degrading RNG entropy rather
+	 * than a build error, so it's not something to guess at. RNG
+	 * entropy quality doesn't depend on ADC calibration precision the
+	 * way a real measurement would, so leaving this uncalibrated
+	 * still produces a working (if unverified) noise source. Real gap
+	 * to close once real regi2c documentation exists for this chip.
+	 */
 	adc_ll_set_calibration_param(ADC_UNIT_1, I2C_SAR_ADC_INIT_CODE_VAL);
 	adc_ll_set_calibration_param(ADC_UNIT_2, I2C_SAR_ADC_INIT_CODE_VAL);
 
@@ -71,7 +88,7 @@ void soc_random_disable(void)
 	adc_ll_digi_reset_pattern_table();
 	adc_ll_set_calibration_param(ADC_UNIT_1, 0x0);
 	adc_ll_set_calibration_param(ADC_UNIT_2, 0x0);
-	adc_ll_regi2c_adc_deinit();
+	/* adc_ll_regi2c_adc_deinit() -- see the comment in soc_random_enable() */
 	regi2c_saradc_disable();
 
 	/* Disable analog I2C master clock */
