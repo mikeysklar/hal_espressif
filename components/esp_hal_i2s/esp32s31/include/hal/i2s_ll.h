@@ -24,6 +24,19 @@
 #include "hal/hal_utils.h"
 #include "hal/config.h"
 
+/* i2s_types.h omits i2s_dir_t under __ZEPHYR__, on the assumption Zephyr
+ * supplies an identically-named replacement. Zephyr's own I2S direction
+ * type is actually the tagged enum `enum i2s_dir` (zephyr/drivers/i2s.h),
+ * not a `i2s_dir_t` typedef, and Zephyr's esp32 I2S driver never calls
+ * i2s_ll_set_destination() below (it drives I2S directly, not through
+ * this HAL function) -- so this alias only needs to let this file's own
+ * declaration type-check, not carry any real semantics across to Zephyr.
+ */
+#ifdef __ZEPHYR__
+#include <zephyr/drivers/i2s.h>
+typedef enum i2s_dir i2s_dir_t;
+#endif
+
 #define I2S_LL_GET(_attr)       I2S_LL_ ## _attr
 #define I2S_LL_SUPPORT(_feat)   I2S_LL_SUPPORT_ ## _feat
 #define I2S_LL_INST_NUM         2  // ESP32S31 has 2 I2S instances
