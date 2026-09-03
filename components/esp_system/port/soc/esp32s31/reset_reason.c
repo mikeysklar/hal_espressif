@@ -73,7 +73,13 @@ static esp_reset_reason_t get_reset_reason(soc_reset_reason_t rtc_reset_reason, 
     }
 }
 
-static void __attribute__((constructor)) esp_reset_reason_init(void)
+/*
+ * Not static/__attribute__((constructor)) like real esp-idf's version --
+ * matching ESP32-C61's Zephyr-side reset_reason.c, this is called
+ * explicitly from soc.c's __esp_platform_app_start() instead of relying
+ * on a libc .init_array constructor mechanism.
+ */
+void esp_reset_reason_init(void)
 {
     esp_reset_reason_t hint = esp_reset_reason_get_hint();
     s_reset_reason = get_reset_reason(esp_rom_get_reset_reason(PRO_CPU_NUM), hint);
