@@ -115,6 +115,13 @@ typedef struct {
 void rtc_clk_init(rtc_clk_config_t cfg);
 
 /**
+ * Enable the TIMG0 bus clock, needed before RTC clock calibration runs.
+ * See the comment on this function's definition (rtc_time.c) for why it's
+ * a plain function here rather than real esp-idf's __attribute__((constructor)).
+ */
+void enable_timer_group0_for_calibration(void);
+
+/**
  * @brief Get main XTAL frequency
  *
  * This is the value stored in RTC register RTC_XTAL_FREQ_REG by the bootloader. As passed to
