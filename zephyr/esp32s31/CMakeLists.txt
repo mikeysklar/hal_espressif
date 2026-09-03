@@ -199,7 +199,6 @@ if(CONFIG_SOC_SERIES_ESP32S31)
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_rom/${CONFIG_SOC_SERIES}/ld/${CONFIG_SOC_SERIES}.rom.newlib.ld
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_rom/${CONFIG_SOC_SERIES}/ld/${CONFIG_SOC_SERIES}.rom.version.ld
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_rom/${CONFIG_SOC_SERIES}/ld/${CONFIG_SOC_SERIES}.rom.libc.ld
-    -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_rom/${CONFIG_SOC_SERIES}/ld/${CONFIG_SOC_SERIES}.rom.libc-suboptimal_for_misaligned_mem.ld
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_rom/${CONFIG_SOC_SERIES}/ld/${CONFIG_SOC_SERIES}.rom.libgcc.ld
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/esp_hal_wdt/${CONFIG_SOC_SERIES}/rom.wdt.ld
     -T${CMAKE_CURRENT_SOURCE_DIR}/../../components/riscv/ld/rom.api.ld
