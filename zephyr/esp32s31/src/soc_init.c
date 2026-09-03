@@ -169,69 +169,45 @@ void ana_clock_glitch_reset_config(bool enable)
 /*
  * Custom bootloader_clock_configure() for the ESP32-S31 bootloader stage.
  *
- * The bootloader (simple boot or MCUboot) enables PLL and switches the CPU
- * clock source so that flash can run at higher speeds. The ROM bootloader
- * leaves the CPU on XTAL. The default weak bootloader_clock_configure()
- * skips this on a software reset, which would leave the BBPLL un-brought-up
- * and hang the application clock driver's REGI2C re-calibration; this
- * override always brings the PLL up so a software reboot recovers cleanly.
+ * The bootloader (simple boot or MCUboot) switches the CPU clock source to
+ * the PLL so that flash can run at higher speeds; the ROM bootloader leaves
+ * the CPU on XTAL. This override always brings the CPU up to 240 MHz so a
+ * software reboot recovers cleanly.
  *
- * Cannot use rtc_clk_init() or REGI2C_WRITE/REGI2C_WRITE_MASK here
- * because without BOOTLOADER_BUILD they go through
- * ANALOG_CLOCK_ENABLE() -> PERIPH_RCC_ACQUIRE_ATOMIC -> irq_lock
- * which requires kernel infrastructure not available during early boot.
- *
- * Instead, use _regi2c_impl_write/write_mask directly for BBPLL
- * register configuration, and LL functions for calibration control
- * and clock source switching.
+ * ESP32-S31's CPU PLL target is SOC_CPU_CLK_SRC_PLL_F240M (240 MHz), and its
+ * BBPLL is a fixed, always-on PLL that needs no software enable or
+ * calibration (unlike ESP32-C61, whose manual BBPLL calibration sequence an
+ * earlier version of this file was mistakenly ported from, targeting the
+ * nonexistent SOC_CPU_CLK_SRC_PLL_F160M).
  */
 void bootloader_clock_configure(void)
 {
 	esp_rom_output_tx_wait_idle(0);
 
 	/*
-	 * Ported from ESP32-C61's manual BBPLL calibration sequence without
-	 * checking that it doesn't apply to this chip at all: ESP32-S31's
-	 * real esp-idf (v6.1-beta1) never calls clk_ll_bbpll_enable() or any
-	 * BBPLL calibration function anywhere in its esp32s31 port -- BBPLL
-	 * is a fixed, always-on PLL on this chip that needs no software
-	 * calibration, unlike C61's. The old code also targeted
-	 * SOC_CPU_CLK_SRC_PLL_F160M, a clock source this chip's real
-	 * clk_tree_defs.h doesn't even declare -- ESP32-S31's real CPU PLL
-	 * target is SOC_CPU_CLK_SRC_PLL_F240M (240 MHz), and get_act_hp_dbias()/
-	 * get_act_lp_dbias() (the pmu_param.c trim table this port doesn't have)
-	 * were only needed by that wrong manual sequence, not by the real one
-	 * below.
+	 * Switch the CPU to the 240 MHz PLL with a direct
+	 * rtc_clk_cpu_freq_set_config(), NOT rtc_clk_init(). The sibling chips
+	 * (esp32c5/c6/c61) likewise set the CPU/PLL directly here and never call
+	 * rtc_clk_init() in bootloader_clock_configure(): rtc_clk_init() ends by
+	 * calling rtc_clk_slow_src_set() -> esp_sleep_pd_config(), which hangs at
+	 * this early boot stage because this translation unit is not compiled
+	 * under BOOTLOADER_BUILD, so the sleep power-domain subsystem it needs
+	 * (not yet initialized) is reached instead of being compiled out.
+	 * Confirmed on real ESP32-S31 hardware: calling rtc_clk_init() here hangs
+	 * inside that esp_sleep_pd_config() call, and the RWDT then resets the
+	 * chip before the console comes up.
 	 *
-	 * rtc_clk_init() (ported from esp-idf's esp32s31/rtc_clk_init.c) is
-	 * the same function real esp-idf's bootloader_clock_configure() calls
-	 * for every chip in this family. Its REGI2C_WRITE_MASK calls go
-	 * through ANALOG_CLOCK_ENABLE() -> PERIPH_RCC_ACQUIRE_ATOMIC(), a
-	 * critical section (esp_os_enter_critical(), a Zephyr spinlock) --
-	 * safe this early since Zephyr spinlocks are lock-free atomics, not
-	 * scheduler-dependent. Its rtc_clk_cpu_freq_set_config() call for
-	 * SOC_CPU_CLK_SRC_PLL_F240M only tries to acquire the PLL through
-	 * esp_clk_tree_enable_src(), which no-ops safely
-	 * (`if (!s_clk_tree_initialized) return ESP_OK;`) until the full
-	 * clock-tree subsystem initializes later -- matching real esp-idf's
-	 * own bootloader-stage behavior, where the equivalent enable call is
-	 * compiled out entirely under BOOTLOADER_BUILD for this exact
-	 * source. The actual 240 MHz switch (rtc_clk_cpu_freq_to_pll_240_mhz)
-	 * is just divider/mux register writes with no calibration wait.
+	 * S31's BBPLL is fixed/always-on, so no BBPLL enable or calibration is
+	 * needed; rtc_clk_cpu_freq_set_config() performs the divider/mux register
+	 * writes for the 240 MHz switch with no calibration wait. The RC
+	 * slow/fast clock sources are left at their power-on defaults (RC_SLOW /
+	 * RC_FAST already selected) and are configured later by the full clock
+	 * subsystem, matching the sibling bootloader stages.
 	 */
-	rtc_clk_config_t clk_cfg = {
-		.xtal_freq = SOC_XTAL_FREQ_40M,
-		.cpu_freq_mhz = 240,
-		.fast_clk_src = SOC_RTC_FAST_CLK_SRC_RC_FAST,
-		.slow_clk_src = SOC_RTC_SLOW_CLK_SRC_RC_SLOW,
-		.clk_rtc_clk_div = 0,
-		.clk_8m_clk_div = 0,
-		.slow_clk_dcap = RTC_CNTL_SCK_DCAP_DEFAULT,
-		.clk_8m_dfreq = RTC_CNTL_CK8M_DFREQ_DEFAULT,
-		.rc32k_dfreq = RTC_CNTL_RC32K_DFREQ_DEFAULT,
-	};
-	enable_timer_group0_for_calibration();
-	rtc_clk_init(clk_cfg);
+	rtc_cpu_freq_config_t cpu_cfg;
+
+	rtc_clk_cpu_freq_mhz_to_config(240, &cpu_cfg);
+	rtc_clk_cpu_freq_set_config(&cpu_cfg);
 
 	/*
 	 * Point the MSPI flash clock at BBPLL now that the CPU is running
