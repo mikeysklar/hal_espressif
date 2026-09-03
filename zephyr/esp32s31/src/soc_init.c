@@ -28,6 +28,7 @@
 #include "soc/hp_apm_reg.h"
 #include "soc/lp_apm_reg.h"
 #include "soc/lp_wdt_reg.h"
+#include "hal/rwdt_ll.h"
 #include "hal/axi_icm_ll.h"
 #include "esp_log.h"
 
@@ -40,25 +41,18 @@ void soc_hw_init(void)
 #endif
 
 	/*
-	 * Ensure the system bus resets properly during a core reset (WDT).
-	 * Prevents bus freezing caused by an incorrect MSPI core reset in ROM.
+	 * Ported from ESP32-C61 without checking that this workaround and
+	 * the modem-ICG block below don't apply to this chip at all: real
+	 * esp-idf's esp32s31/bootloader_esp32s31.c bootloader_hardware_init()
+	 * has neither. ESP32-S31's axi_icm_ll.h (a QoS-arbiter-only ICM_SYS
+	 * interconnect, confirmed a different IP block from C5/C61's, which
+	 * do have this reset function) has no reset function at all, and
+	 * the PMU/modem ICG-code dance isn't part of this chip's real early
+	 * init sequence either.
 	 */
-	axi_icm_ll_reset_with_core_reset(true);
-
-	/* Enable analog I2C master clock */
 	_regi2c_ctrl_ll_master_enable_clock(true);
+	regi2c_ctrl_ll_master_force_enable_clock(true);
 	regi2c_ctrl_ll_master_configure_clock();
-
-	/*
-	 * Configure modem ICG code in PMU_ACTIVE state so the I2C master
-	 * clock is not gated. Required before any REGI2C operations.
-	 */
-	pmu_ll_hp_set_icg_modem(&PMU, PMU_MODE_HP_ACTIVE, PMU_HP_ICG_MODEM_CODE_ACTIVE);
-	modem_syscon_ll_set_modem_apb_icg_bitmap(&MODEM_SYSCON, BIT(PMU_HP_ICG_MODEM_CODE_ACTIVE));
-	modem_lpcon_ll_set_i2c_master_icg_bitmap(&MODEM_LPCON, BIT(PMU_HP_ICG_MODEM_CODE_ACTIVE));
-	modem_lpcon_ll_set_lp_apb_icg_bitmap(&MODEM_LPCON, BIT(PMU_HP_ICG_MODEM_CODE_ACTIVE));
-	pmu_ll_imm_update_dig_icg_modem_code(&PMU, true);
-	pmu_ll_imm_update_dig_icg_switch(&PMU, true);
 }
 
 void ana_super_wdt_reset_config(bool enable)
@@ -73,19 +67,25 @@ void ana_bod_reset_config(bool enable)
 
 void ana_power_glitch_reset_config(bool enable)
 {
-	/* Only the VDDPST power glitch is detected */
-	SET_PERI_REG_MASK(PMU_RF_PWC_REG, PMU_PERIF_I2C_RSTB);
-	SET_PERI_REG_MASK(PMU_RF_PWC_REG, PMU_XPD_PERIF_I2C);
-	REGI2C_WRITE_MASK(I2C_SAR_ADC, POWER_GLITCH_XPD_VDET_PERIF, 0);
-	REGI2C_WRITE_MASK(I2C_SAR_ADC, POWER_GLITCH_XPD_VDET_PLLBB, 0);
-	REGI2C_WRITE_MASK(I2C_SAR_ADC, POWER_GLITCH_XPD_VDET_PLL, 0);
+	/*
+	 * Only the VDDPST power glitch is detected.
+	 *
+	 * PMU_RSTB_PERIF_I2C/PMU_XPD_PERIF_I2C live in PMU_ANA_PERI_PWR_CTRL_REG
+	 * on this chip, not PMU_RF_PWC_REG (which only has PMU_XPD_RF_CIRCUIT) --
+	 * confirmed against the real pmu_reg.h, not just a naming rename.
+	 */
+	SET_PERI_REG_MASK(PMU_ANA_PERI_PWR_CTRL_REG, PMU_RSTB_PERIF_I2C);
+	SET_PERI_REG_MASK(PMU_ANA_PERI_PWR_CTRL_REG, PMU_XPD_PERIF_I2C);
+	REGI2C_WRITE_MASK(I2C_SARADC, POWER_GLITCH_XPD_VDET_PERIF, 0);
+	REGI2C_WRITE_MASK(I2C_SARADC, POWER_GLITCH_XPD_VDET_PLLBB, 0);
+	REGI2C_WRITE_MASK(I2C_SARADC, POWER_GLITCH_XPD_VDET_PLL, 0);
 
 	REG_SET_FIELD(LP_ANA_FIB_ENABLE_REG, LP_ANA_ANA_FIB_PWR_GLITCH_ENA, 0);
 	if (enable) {
-		REG_SET_FIELD(LP_ANA_POWER_GLITCH_CNTL_REG,
+		REG_SET_FIELD(LP_ANA_PG_GLITCH_CNTL_REG,
 			      LP_ANA_POWER_GLITCH_RESET_ENA, 0xf);
 	} else {
-		REG_SET_FIELD(LP_ANA_POWER_GLITCH_CNTL_REG,
+		REG_SET_FIELD(LP_ANA_PG_GLITCH_CNTL_REG,
 			      LP_ANA_POWER_GLITCH_RESET_ENA, 0);
 	}
 }
@@ -99,7 +99,14 @@ void ana_reset_config(void)
 
 void super_wdt_auto_feed(void)
 {
-	REG_WRITE(LP_WDT_SWD_WPROTECT_REG, LP_WDT_SWD_WKEY_VALUE);
+	/*
+	 * LP_WDT_SWD_WKEY_VALUE is a HAL-level constant (hal/rwdt_ll.h on
+	 * this chip, hal/lpwdt_ll.h elsewhere), not a register-level one --
+	 * only the register/field names alias through soc/lp_wdt_reg.h.
+	 * ESP32-S31's is RTC_WDT_SWD_WKEY_VALUE, matching the same
+	 * 0x50D83AA1 magic value every sibling chip uses.
+	 */
+	REG_WRITE(LP_WDT_SWD_WPROTECT_REG, RTC_WDT_SWD_WKEY_VALUE);
 	REG_SET_BIT(LP_WDT_SWD_CONFIG_REG, LP_WDT_SWD_AUTO_FEED_EN);
 	REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0);
 }
@@ -127,10 +134,15 @@ void check_wdt_reset(void)
 	int wdt_rst = 0;
 	soc_reset_reason_t rst_reas;
 
+	/*
+	 * ESP32-S31 has combined MWDT/RWDT reset-reason values (no
+	 * per-CPU CPU0_* variants like C61's), matching real esp-idf's
+	 * bootloader_check_if_wdt_reset() for this chip exactly.
+	 */
 	rst_reas = esp_rom_get_reset_reason(0);
-	if (rst_reas == RESET_REASON_CORE_RTC_WDT || rst_reas == RESET_REASON_CORE_MWDT0 ||
-	    rst_reas == RESET_REASON_CORE_MWDT1 || rst_reas == RESET_REASON_CPU0_MWDT0 ||
-	    rst_reas == RESET_REASON_CPU0_MWDT1 || rst_reas == RESET_REASON_CPU0_RTC_WDT) {
+	if (rst_reas == RESET_REASON_CORE_MWDT0 || rst_reas == RESET_REASON_CORE_MWDT1 ||
+	    rst_reas == RESET_REASON_CORE_RWDT || rst_reas == RESET_REASON_CPU_MWDT ||
+	    rst_reas == RESET_REASON_CPU_RWDT || rst_reas == RESET_REASON_SYS_RWDT) {
 		ESP_EARLY_LOGW(TAG, "PRO CPU has been reset by WDT.");
 		wdt_rst = 1;
 	}
@@ -218,6 +230,7 @@ void bootloader_clock_configure(void)
 		.clk_8m_dfreq = RTC_CNTL_CK8M_DFREQ_DEFAULT,
 		.rc32k_dfreq = RTC_CNTL_RC32K_DFREQ_DEFAULT,
 	};
+	enable_timer_group0_for_calibration();
 	rtc_clk_init(clk_cfg);
 
 	/*

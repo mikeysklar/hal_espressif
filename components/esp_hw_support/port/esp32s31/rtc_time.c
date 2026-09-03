@@ -215,9 +215,18 @@ uint32_t rtc_clk_freq_cal(uint32_t cal_val)
 
 uint32_t rtc_clk_freq_to_period(uint32_t) __attribute__((alias("rtc_clk_freq_cal")));
 
-/// @brief if the calibration is used, we need to enable the timer group0 first
-__attribute__((constructor))
-static void enable_timer_group0_for_calibration(void)
+/*
+ * @brief if the calibration is used, we need to enable the timer group0 first
+ *
+ * Not static/__attribute__((constructor)) like real esp-idf's version --
+ * Zephyr's picolibc-based link doesn't run libc .init_array constructors
+ * here (link fails: "GNU-style constructors required but STATIC_INIT_GNU
+ * not enabled"), so this is called explicitly from
+ * bootloader_clock_configure() instead, right before rtc_clk_init(),
+ * matching what a working constructor would have done by running before
+ * any calibration could need it.
+ */
+void enable_timer_group0_for_calibration(void)
 {
 #ifndef BOOTLOADER_BUILD
     PERIPH_RCC_ACQUIRE_ATOMIC(PERIPH_TIMG0_MODULE, ref_count) {
