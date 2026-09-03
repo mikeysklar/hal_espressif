@@ -17,6 +17,8 @@
 #include "hal/modem_syscon_ll.h"
 #include "hal/modem_lpcon_ll.h"
 #include "hal/mspi_ll.h"
+#include "hal/cache_hal.h"
+#include "hal/cache_ll.h"
 #include "esp_private/esp_pmu.h"
 #include "esp32s31/rom/spi_flash.h"
 #include "modem/modem_lpcon_reg.h"
@@ -173,115 +175,66 @@ void ana_clock_glitch_reset_config(bool enable)
  */
 void bootloader_clock_configure(void)
 {
-	uint32_t xtal_freq;
-	uint8_t div_ref, div7_0;
-	uint8_t dchgp = 5, dbias = 3, href = 3, lref = 1;
-
 	esp_rom_output_tx_wait_idle(0);
 
-	xtal_freq = clk_ll_xtal_get_freq_mhz();
-
-	/* Reset I2C master in case it was left in a bad state (e.g. after WDT reset) */
-	_regi2c_ctrl_ll_master_reset();
-
-	/* Force-enable I2C master clock for REGI2C operations */
-	regi2c_ctrl_ll_master_force_enable_clock(true);
-
-	/* Set tuning parameters for RC_FAST and RC_SLOW clocks,
-	 * following the vendor clock init sequence.
+	/*
+	 * Ported from ESP32-C61's manual BBPLL calibration sequence without
+	 * checking that it doesn't apply to this chip at all: ESP32-S31's
+	 * real esp-idf (v6.1-beta1) never calls clk_ll_bbpll_enable() or any
+	 * BBPLL calibration function anywhere in its esp32s31 port -- BBPLL
+	 * is a fixed, always-on PLL on this chip that needs no software
+	 * calibration, unlike C61's. The old code also targeted
+	 * SOC_CPU_CLK_SRC_PLL_F160M, a clock source this chip's real
+	 * clk_tree_defs.h doesn't even declare -- ESP32-S31's real CPU PLL
+	 * target is SOC_CPU_CLK_SRC_PLL_F240M (240 MHz), and get_act_hp_dbias()/
+	 * get_act_lp_dbias() (the pmu_param.c trim table this port doesn't have)
+	 * were only needed by that wrong manual sequence, not by the real one
+	 * below.
+	 *
+	 * rtc_clk_init() (ported from esp-idf's esp32s31/rtc_clk_init.c) is
+	 * the same function real esp-idf's bootloader_clock_configure() calls
+	 * for every chip in this family. Its REGI2C_WRITE_MASK calls go
+	 * through ANALOG_CLOCK_ENABLE() -> PERIPH_RCC_ACQUIRE_ATOMIC(), a
+	 * critical section (esp_os_enter_critical(), a Zephyr spinlock) --
+	 * safe this early since Zephyr spinlocks are lock-free atomics, not
+	 * scheduler-dependent. Its rtc_clk_cpu_freq_set_config() call for
+	 * SOC_CPU_CLK_SRC_PLL_F240M only tries to acquire the PLL through
+	 * esp_clk_tree_enable_src(), which no-ops safely
+	 * (`if (!s_clk_tree_initialized) return ESP_OK;`) until the full
+	 * clock-tree subsystem initializes later -- matching real esp-idf's
+	 * own bootloader-stage behavior, where the equivalent enable call is
+	 * compiled out entirely under BOOTLOADER_BUILD for this exact
+	 * source. The actual 240 MHz switch (rtc_clk_cpu_freq_to_pll_240_mhz)
+	 * is just divider/mux register writes with no calibration wait.
 	 */
-	REG_SET_FIELD(LP_CLKRST_FOSC_CNTL_REG, LP_CLKRST_FOSC_DFREQ, 100);
-	REGI2C_WRITE_MASK(I2C_DIG_REG, I2C_DIG_REG_SCK_DCAP, 128);
-	REGI2C_WRITE_MASK(I2C_DIG_REG, I2C_DIG_REG_ENIF_RTC_DREG, 1);
-	REGI2C_WRITE_MASK(I2C_DIG_REG, I2C_DIG_REG_ENIF_DIG_DREG, 1);
-	REGI2C_WRITE_MASK(I2C_DIG_REG, I2C_DIG_REG_XPD_DIG_REG, 0);
-	REGI2C_WRITE_MASK(I2C_DIG_REG, I2C_DIG_REG_XPD_RTC_REG, 0);
-
-	/* DIG regulator DBIAS handoff to PMU, using calibrated values from eFuse.
-	 * Without this, voltage regulation stays at ROM defaults which may be
-	 * insufficient at 160 MHz in worst-case conditions.
-	 */
-	uint32_t hp_cali_dbias = get_act_hp_dbias();
-	uint32_t lp_cali_dbias = get_act_lp_dbias();
-
-	SET_PERI_REG_MASK(PMU_HP_ACTIVE_HP_REGULATOR0_REG, PMU_DIG_REGULATOR0_DBIAS_SEL);
-	SET_PERI_REG_BITS(PMU_HP_ACTIVE_HP_REGULATOR0_REG, PMU_HP_ACTIVE_HP_REGULATOR_DBIAS,
-			  hp_cali_dbias, PMU_HP_ACTIVE_HP_REGULATOR_DBIAS_S);
-	SET_PERI_REG_BITS(PMU_HP_MODEM_HP_REGULATOR0_REG, PMU_HP_MODEM_HP_REGULATOR_DBIAS,
-			  hp_cali_dbias, PMU_HP_MODEM_HP_REGULATOR_DBIAS_S);
-	SET_PERI_REG_BITS(PMU_HP_SLEEP_LP_REGULATOR0_REG, PMU_HP_SLEEP_LP_REGULATOR_DBIAS,
-			  lp_cali_dbias, PMU_HP_SLEEP_LP_REGULATOR_DBIAS_S);
-
-	/* Enable BBPLL power */
-	clk_ll_bbpll_enable();
-
-	/* Start BBPLL self-calibration */
-	clk_ll_bbpll_calibration_start();
+	rtc_clk_config_t clk_cfg = {
+		.xtal_freq = SOC_XTAL_FREQ_40M,
+		.cpu_freq_mhz = 240,
+		.fast_clk_src = SOC_RTC_FAST_CLK_SRC_RC_FAST,
+		.slow_clk_src = SOC_RTC_SLOW_CLK_SRC_RC_SLOW,
+		.clk_rtc_clk_div = 0,
+		.clk_8m_clk_div = 0,
+		.slow_clk_dcap = RTC_CNTL_SCK_DCAP_DEFAULT,
+		.clk_8m_dfreq = RTC_CNTL_CK8M_DFREQ_DEFAULT,
+		.rc32k_dfreq = RTC_CNTL_RC32K_DFREQ_DEFAULT,
+	};
+	rtc_clk_init(clk_cfg);
 
 	/*
-	 * Configure BBPLL for 480MHz using direct ROM regi2c calls.
-	 * This bypasses REGI2C_WRITE/REGI2C_WRITE_MASK macros which
-	 * would call ANALOG_CLOCK_ENABLE() -> irq_lock during early boot.
+	 * Point the MSPI flash clock at BBPLL now that the CPU is running
+	 * from PLL_F240M, matching real esp-idf's
+	 * bootloader_flash_config_esp32s31.c: bootloader_init_mspi_clock().
+	 * Cache must be disabled while the flash clock source/divider
+	 * changes underneath it.
 	 */
-	switch (xtal_freq) {
-	case SOC_XTAL_FREQ_40M:
-	default:
-		div_ref = 0;
-		div7_0 = 8;
-		break;
-	}
-
-	uint8_t i2c_bbpll_lref = (dchgp << I2C_BBPLL_OC_DCHGP_LSB) | div_ref;
-	_regi2c_impl_write(I2C_BBPLL, I2C_BBPLL_HOSTID,
-			     I2C_BBPLL_OC_REF_DIV, i2c_bbpll_lref);
-	_regi2c_impl_write(I2C_BBPLL, I2C_BBPLL_HOSTID,
-			     I2C_BBPLL_OC_DIV_7_0, div7_0);
-	_regi2c_impl_write_mask(I2C_BBPLL, I2C_BBPLL_HOSTID,
-				  I2C_BBPLL_OC_DLREF_SEL,
-				  I2C_BBPLL_OC_DLREF_SEL_MSB,
-				  I2C_BBPLL_OC_DLREF_SEL_LSB, lref);
-	_regi2c_impl_write_mask(I2C_BBPLL, I2C_BBPLL_HOSTID,
-				  I2C_BBPLL_OC_DHREF_SEL,
-				  I2C_BBPLL_OC_DHREF_SEL_MSB,
-				  I2C_BBPLL_OC_DHREF_SEL_LSB, href);
-	_regi2c_impl_write_mask(I2C_BBPLL, I2C_BBPLL_HOSTID,
-				  I2C_BBPLL_OC_VCO_DBIAS,
-				  I2C_BBPLL_OC_VCO_DBIAS_MSB,
-				  I2C_BBPLL_OC_VCO_DBIAS_LSB, dbias);
-
-	/* Wait for calibration to complete */
-	while (!clk_ll_bbpll_calibration_is_done()) {
-		;
-	}
-	esp_rom_delay_us(10);
-	clk_ll_bbpll_calibration_stop();
-	regi2c_ctrl_ll_master_force_enable_clock(false);
-
-	/* Switch CPU to PLL_F160M at 160MHz */
-	clk_ll_cpu_set_divider(1);
-	clk_ll_ahb_set_divider(4);
-	clk_ll_cpu_set_src(SOC_CPU_CLK_SRC_PLL_F160M);
-	clk_ll_bus_update();
-	esp_rom_set_cpu_ticks_per_us(160);
-
-	/*
-	 * Configure the MSPI flash clock now that the 480 MHz SPLL is up.
-	 * Point the MSPI function clock at the SPLL and set the divider so
-	 * flash runs at the configured frequency (480 MHz / 6 = 80 MHz).
-	 * This must happen after the SPLL is brought up: doing it earlier
-	 * (against the XTAL source) would leave the flash clock far too low
-	 * and the flash HAL would abort on the source-vs-target check.
-	 */
-	_mspi_timing_ll_set_flash_clk_src(0, FLASH_CLK_SRC_SPLL);
-	mspi_timing_ll_set_core_clock(0, 80);
+	cache_hal_disable(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
+	_mspi_timing_ll_set_flash_core_clock(0, 80);
+	_mspi_timing_ll_set_flash_clk_src(0, FLASH_CLK_SRC_BBPLL);
+	cache_hal_enable(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
 #if CONFIG_ESPTOOLPY_FLASHFREQ_80M
 	esp_rom_spiflash_config_clk(1, 0);
 	esp_rom_spiflash_config_clk(1, 1);
 #endif
-
-	/* Keep RC_FAST running so RNG has an entropy source during boot */
-	rtc_clk_8m_enable(true);
-	rtc_clk_fast_src_set(SOC_RTC_FAST_CLK_SRC_RC_FAST);
 
 	/* Clear any pending LP/RTC interrupts */
 	CLEAR_PERI_REG_MASK(LP_WDT_INT_ENA_REG, LP_WDT_SUPER_WDT_INT_ENA);
